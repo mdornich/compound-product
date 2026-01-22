@@ -61,6 +61,7 @@ flowchart TD
 ### Prerequisites
 
 - [Amp CLI](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [agent-browser](https://github.com/vercel-labs/agent-browser) for browser-based testing (`npm install -g agent-browser`)
 - `jq` installed (`brew install jq` on macOS)
 - `gh` CLI installed and authenticated (`brew install gh`)
 - One of these LLM providers configured:
@@ -185,7 +186,13 @@ Load the prd skill. Create a PRD for [your feature]
 
 ### Tasks Skill
 
-Converts a PRD markdown file to `prd.json` for the loop.
+Converts a PRD markdown file to `prd.json` with **granular, machine-verifiable tasks**.
+
+Key features:
+- Generates 8-15 small tasks (not 3-5 large ones)
+- Each acceptance criterion is boolean pass/fail
+- Browser tests use [agent-browser](https://github.com/vercel-labs/agent-browser) commands
+- Investigation and implementation are separate tasks
 
 ```
 Load the tasks skill. Convert tasks/prd-feature.md to prd.json
