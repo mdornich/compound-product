@@ -70,6 +70,29 @@ fi
 
 REPORT_CONTENT=$(cat "$REPORT_PATH")
 
+# Find recent PRDs (last 7 days) to avoid re-picking same issues
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+TASKS_DIR="$PROJECT_ROOT/tasks"
+RECENT_FIXES=""
+
+if [ -d "$TASKS_DIR" ]; then
+  # Find prd-*.md files modified in last 7 days
+  RECENT_PRDS=$(find "$TASKS_DIR" -name "prd-*.md" -mtime -7 2>/dev/null || true)
+  if [ -n "$RECENT_PRDS" ]; then
+    RECENT_FIXES="
+## Recently Fixed (Last 7 Days) - DO NOT PICK THESE AGAIN
+"
+    for prd in $RECENT_PRDS; do
+      # Extract title from first heading
+      TITLE=$(grep -m1 "^# " "$prd" 2>/dev/null | sed 's/^# //' || basename "$prd" .md)
+      DATE=$(stat -f "%Sm" -t "%Y-%m-%d" "$prd" 2>/dev/null || stat -c "%y" "$prd" 2>/dev/null | cut -d' ' -f1)
+      RECENT_FIXES="$RECENT_FIXES- $DATE: $TITLE
+"
+    done
+  fi
+fi
+
 PROMPT="You are analyzing a daily report for a software product.
 
 Read this report and identify the #1 most actionable item that should be worked on TODAY.
@@ -81,8 +104,8 @@ CONSTRAINTS:
 - Prefer fixes over new features
 - Prefer high-impact, low-effort items
 - Focus on UI/UX improvements, copy changes, bug fixes, or configuration changes
-- IMPORTANT: If the report has a 'Recently Fixed' section, do NOT pick items that were already addressed there
-
+- IMPORTANT: Do NOT pick items that appear in the 'Recently Fixed' section below
+$RECENT_FIXES
 REPORT:
 $REPORT_CONTENT
 
