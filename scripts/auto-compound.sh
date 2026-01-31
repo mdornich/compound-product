@@ -194,6 +194,21 @@ if [ -f "$PRD_FILE" ]; then
   fi
 fi
 
+# Clean up stale files that confuse the loop agent
+# Old PRD markdown files in tasks/ cause the agent to read them instead of the current prd.json
+for OLD_PRD in "$TASKS_DIR"/prd-*.md; do
+  [ -f "$OLD_PRD" ] || continue
+  if [ "$(basename "$OLD_PRD")" != "$PRD_FILENAME" ]; then
+    log "Removing stale PRD: $(basename "$OLD_PRD")"
+    rm "$OLD_PRD"
+  fi
+done
+
+# Reset progress.txt so the loop agent doesn't confuse previous run context with current
+if [ -f "$PROGRESS_FILE" ]; then
+  rm "$PROGRESS_FILE"
+fi
+
 # Step 5: Use agent to convert PRD to tasks
 log "Step 5: Converting PRD to prd.json with $TOOL..."
 
