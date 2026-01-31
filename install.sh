@@ -134,13 +134,160 @@ if ! command -v agent-browser >/dev/null 2>&1; then
   echo ""
 fi
 
+# Offer to set up scheduled runs via launchd (macOS only)
+if [ "$(uname)" = "Darwin" ]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  Scheduled Automation (optional)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Would you like to set up automatic scheduled runs?"
+  echo "This creates a macOS launchd agent that runs the pipeline"
+  echo "at fixed times (default: midnight, 6am, noon, 6pm)."
+  echo ""
+  read -p "Set up scheduled runs? [y/N] " SETUP_SCHEDULE
+
+  if [ "$SETUP_SCHEDULE" = "y" ] || [ "$SETUP_SCHEDULE" = "Y" ]; then
+    # Detect project name from directory
+    PROJECT_NAME=$(basename "$TARGET_DIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+    PLIST_LABEL="com.compound-product.$PROJECT_NAME"
+    PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
+
+    # Build PATH from current environment (captures brew, claude, etc.)
+    LAUNCH_PATH=""
+    for p in "$HOME/.local/bin" "/opt/homebrew/bin" "/opt/anaconda3/bin" "/usr/local/bin"; do
+      [ -d "$p" ] && LAUNCH_PATH="$LAUNCH_PATH$p:"
+    done
+    LAUNCH_PATH="${LAUNCH_PATH}\$PATH"
+
+    # Ask for schedule
+    echo ""
+    echo "Schedule options:"
+    echo "  1) Every 6 hours (midnight, 6am, noon, 6pm) [default]"
+    echo "  2) Every 12 hours (midnight, noon)"
+    echo "  3) Once daily (6am)"
+    echo ""
+    read -p "Choose schedule [1/2/3]: " SCHEDULE_CHOICE
+    SCHEDULE_CHOICE="${SCHEDULE_CHOICE:-1}"
+
+    case "$SCHEDULE_CHOICE" in
+      2)
+        CALENDAR_INTERVALS="        <dict>
+            <key>Hour</key>
+            <integer>0</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>12</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>"
+        SCHEDULE_DESC="every 12 hours (midnight, noon)"
+        ;;
+      3)
+        CALENDAR_INTERVALS="        <dict>
+            <key>Hour</key>
+            <integer>6</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>"
+        SCHEDULE_DESC="once daily (6am)"
+        ;;
+      *)
+        CALENDAR_INTERVALS="        <dict>
+            <key>Hour</key>
+            <integer>0</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>6</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>12</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>18</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>"
+        SCHEDULE_DESC="every 6 hours (midnight, 6am, noon, 6pm)"
+        ;;
+    esac
+
+    # Unload existing plist if present
+    if [ -f "$PLIST_PATH" ]; then
+      launchctl unload "$PLIST_PATH" 2>/dev/null || true
+    fi
+
+    # Write plist — uses /bin/bash to invoke script as data input,
+    # bypassing macOS Gatekeeper quarantine (com.apple.provenance)
+    cat > "$PLIST_PATH" << PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$PLIST_LABEL</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>export PATH="$LAUNCH_PATH"; cd "$TARGET_DIR" && /bin/bash scripts/compound/auto-compound.sh >> "$TARGET_DIR/scripts/compound/scheduled-run.log" 2>&1</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <array>
+$CALENDAR_INTERVALS
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>$TARGET_DIR/scripts/compound/launchd-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>$TARGET_DIR/scripts/compound/launchd-stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>$HOME</string>
+    </dict>
+</dict>
+</plist>
+PLIST_EOF
+
+    launchctl load "$PLIST_PATH" 2>/dev/null && \
+      echo "✅ Schedule active: $SCHEDULE_DESC" || \
+      echo "⚠️  Could not load schedule. Load manually: launchctl load $PLIST_PATH"
+
+    echo ""
+    echo "Manage schedule:"
+    echo "  View:    launchctl list | grep compound-product"
+    echo "  Stop:    launchctl unload $PLIST_PATH"
+    echo "  Restart: launchctl unload $PLIST_PATH && launchctl load $PLIST_PATH"
+    echo "  Logs:    tail -f $TARGET_DIR/scripts/compound/scheduled-run.log"
+  fi
+fi
+
 echo ""
 echo "✅ Installation complete!"
 echo ""
 echo "Next steps:"
 echo "1. Edit compound.config.json to configure for your project"
-echo "2. Add a report to ./reports/ (any markdown file)"
-echo "3. Run: vercel env pull  (or set ANTHROPIC_API_KEY)"
-echo "4. Run: ./scripts/compound/auto-compound.sh --dry-run"
+echo "2. Add a report to ./reports/ (or set analyzeCommand for custom input)"
+echo "3. Run: ./scripts/compound/auto-compound.sh --dry-run"
 echo ""
 echo "See README.md for full documentation."
