@@ -72,6 +72,19 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "  Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
 
+  # Safety check: On iteration 1, verify not all tasks are already passes: true
+  # This catches cases where prd.json was generated incorrectly
+  if [ "$i" -eq 1 ] && [ -f "$PRD_FILE" ]; then
+    TOTAL_TASKS=$(jq '.tasks | length' "$PRD_FILE")
+    PASSING_TASKS=$(jq '[.tasks[] | select(.passes == true)] | length' "$PRD_FILE")
+    if [ "$TOTAL_TASKS" -gt 0 ] && [ "$TOTAL_TASKS" -eq "$PASSING_TASKS" ]; then
+      echo "ERROR: All $TOTAL_TASKS tasks already have passes: true before any work was done."
+      echo "This indicates prd.json was generated incorrectly. Forcing all to false."
+      jq '.tasks = [.tasks[] | .passes = false]' "$PRD_FILE" > "$PRD_FILE.tmp" && \
+        mv "$PRD_FILE.tmp" "$PRD_FILE"
+    fi
+  fi
+
   # Run the selected tool with the prompt
   if [[ "$TOOL" == "amp" ]]; then
     OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true

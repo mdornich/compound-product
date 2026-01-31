@@ -211,7 +211,18 @@ fi
 
 # Verify prd.json was created
 [ -f "$OUTPUT_DIR/prd.json" ] || error "prd.json was not created"
-log "Tasks created: $(cat "$OUTPUT_DIR/prd.json" | jq '.tasks | length') tasks"
+
+# Safety: Force all tasks to passes: false
+# LLMs sometimes generate prd.json with passes: true, which causes the loop
+# to immediately declare COMPLETE without doing any work
+PASSES_TRUE_COUNT=$(jq '[.tasks[] | select(.passes == true)] | length' "$OUTPUT_DIR/prd.json")
+if [ "$PASSES_TRUE_COUNT" -gt 0 ]; then
+  log "WARNING: prd.json had $PASSES_TRUE_COUNT tasks with passes: true — forcing all to false"
+  jq '.tasks = [.tasks[] | .passes = false]' "$OUTPUT_DIR/prd.json" > "$OUTPUT_DIR/prd.json.tmp" && \
+    mv "$OUTPUT_DIR/prd.json.tmp" "$OUTPUT_DIR/prd.json"
+fi
+
+log "Tasks created: $(jq '.tasks | length' "$OUTPUT_DIR/prd.json") tasks"
 
 # Commit the PRD and prd.json
 git add "$PRD_PATH" "$OUTPUT_DIR/prd.json"
